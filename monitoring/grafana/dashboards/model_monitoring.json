@@ -1,0 +1,106 @@
+{
+    "dashboard": {
+      "id": null,
+      "title": "TensorFlow Serving Model Monitoring",
+      "tags": ["tensorflow", "serving", "monitoring"],
+      "timezone": "browser",
+      "panels": [
+        {
+          "id": 1,
+          "title": "Request Rate",
+          "type": "graph",
+          "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+          "targets": [
+            {
+              "expr": "rate(:tensorflow:serving:request_count[5m])",
+              "legendFormat": "{{status_code}}",
+              "refId": "A"
+            }
+          ],
+          "xaxis": {"mode": "time"},
+          "yaxis": {"format": "reqps", "min": 0}
+        },
+        {
+          "id": 2,
+          "title": "Request Latency",
+          "type": "graph",
+          "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, rate(:tensorflow:serving:request_latency_bucket[5m]))",
+              "legendFormat": "P95",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.50, rate(:tensorflow:serving:request_latency_bucket[5m]))",
+              "legendFormat": "P50",
+              "refId": "B"
+            }
+          ],
+          "xaxis": {"mode": "time"},
+          "yaxis": {"format": "ms", "min": 0}
+        },
+        {
+          "id": 3,
+          "title": "Error Rate",
+          "type": "graph",
+          "gridPos": {"x": 0, "y": 8, "w": 8, "h": 6},
+          "targets": [
+            {
+              "expr": "rate(:tensorflow:serving:request_count{status_code!=\"200\"}[5m]) / rate(:tensorflow:serving:request_count[5m])",
+              "legendFormat": "Error Rate",
+              "refId": "A"
+            }
+          ],
+          "xaxis": {"mode": "time"},
+          "yaxis": {"format": "percent", "min": 0, "max": 1}
+        },
+        {
+          "id": 4,
+          "title": "Model Version Performance",
+          "type": "table",
+          "gridPos": {"x": 8, "y": 8, "w": 16, "h": 6},
+          "targets": [
+            {
+              "expr": "max by (version) (:tensorflow:serving:request_count)",
+              "format": "table",
+              "refId": "A"
+            }
+          ],
+          "columns": [
+            {"text": "Version", "value": "version"},
+            {"text": "Request Count", "value": "Value"}
+          ],
+          "styles": [
+            {
+              "alias": "Version",
+              "pattern": "version",
+              "type": "string"
+            },
+            {
+              "alias": "Request Count",
+              "pattern": "Value",
+              "type": "number",
+              "unit": "short"
+            }
+          ]
+        }
+      ],
+      "time": {"from": "now-6h", "to": "now"},
+      "timepicker": {
+        "refresh_intervals": ["5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h", "2h", "1d"]
+      },
+      "templating": {
+        "list": [
+          {
+            "name": "model",
+            "label": "Model",
+            "type": "query",
+            "query": "label_values(:tensorflow:serving:request_count, model)"
+          }
+        ]
+      },
+      "refresh": "5s"
+    },
+    "overwrite": true
+  }
