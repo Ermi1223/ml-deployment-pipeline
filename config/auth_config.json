@@ -1,0 +1,10 @@
+{
+    "api_keys": {
+      "client_1": "abc123def456",
+      "client_2": "ghi789jkl012"
+    },
+    "rate_limits": {
+      "client_1": 1000,
+      "client_2": 100
+    }
+  }

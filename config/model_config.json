@@ -1,0 +1,20 @@
+{
+  "model_config_list": [
+    {
+      "config": {
+        "name": "mnist",
+        "base_path": "/models/mnist",
+        "model_platform": "tensorflow",
+        "model_version_policy": {
+          "specific": {
+            "versions": [1756273655, 1756281295]
+          }
+        },
+        "version_labels": {
+          "stable": 1756273655,
+          "canary": 1756281295
+        }
+      }
+    }
+  ]
+}
