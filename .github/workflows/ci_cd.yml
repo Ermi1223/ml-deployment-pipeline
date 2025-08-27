@@ -1,0 +1,161 @@
+name: ML Model CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly Sunday at midnight
+
+env:
+  MODEL_NAME: mnist
+  DOCKER_IMAGE: tf-serving-mnist
+  REGISTRY: ghcr.io
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+    
+    - name: Run unit tests
+      run: python -m pytest tests/ -v
+    
+    - name: Test REST API
+      run: python tests/test_rest_api.py
+    
+    - name: Test gRPC API
+      run: python tests/test_grpc_api.py
+      env:
+        TF_SERVING_HOST: localhost
+        TF_SERVING_PORT: 8500
+
+  train:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+    
+    - name: Train model
+      run: python scripts/train_model.py
+    
+    - name: Evaluate model
+      run: python scripts/retrain_pipeline.py --min-accuracy 0.97
+      env:
+        SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+        SMTP_PORT: ${{ secrets.SMTP_PORT }}
+        SMTP_USER: ${{ secrets.SMTP_USER }}
+        SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+    
+    - name: Upload model artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: model-artifacts
+        path: models/
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: train
+    if: success()
+    environment: production
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Download model artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: model-artifacts
+        path: models/
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: ./docker
+        file: ./docker/Dockerfile.tf_serving
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.DOCKER_IMAGE }}:latest
+          ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.DOCKER_IMAGE }}:${{ env.IMAGE_TAG }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    - name: Deploy to production
+      run: |
+        docker-compose -f docker/docker-compose.yml down
+        docker-compose -f docker/docker-compose.yml up -d
+      env:
+        MODEL_NAME: ${{ env.MODEL_NAME }}
+    
+    - name: Run performance tests
+      run: python tests/test_model_performance.py
+    
+    - name: Run canary test
+      run: python scripts/canary_test.py
+      env:
+        TF_SERVING_URL: http://localhost:8501
+
+  monitor:
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: always()
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+    
+    - name: Run monitoring
+      run: python scripts/monitor_metrics.py
+      timeout-minutes: 10
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: [test, train, deploy, monitor]
+    if: always()
+    steps:
+    - name: Send notification
+      run: python scripts/send_notification.py
+      env:
+        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
